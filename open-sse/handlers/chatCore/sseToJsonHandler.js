@@ -203,22 +203,47 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       if (onRequestSuccess) await onRequestSuccess();
 
       const usage = jsonResponse.usage || {};
-      appendLog({ tokens: usage, status: "200 OK" });
-      saveUsageStats({ provider, model, tokens: usage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });
-      if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage, latency: { total: Date.now() - requestStartTime } }));
 
-      // Same cache-inclusive total for the recorded detail, so the DB and the
-      // client-facing usage can never disagree.
-      const inTokensForLog = (usage.input_tokens || 0)
-        + (usage.cache_read_input_tokens || usage.cached_tokens || 0)
-        + (usage.cache_creation_input_tokens || 0);
+      // Two cache shapes reach here:
+      //  - Claude-style cache_read/cache_creation_input_tokens: input_tokens EXCLUDES
+      //    them (measured: 2012 reported where the real prompt was ~5344 with 5332
+      //    served from cache), so fold them into the prompt total.
+      //  - Responses-style input_tokens_details.cached_tokens: input_tokens already
+      //    INCLUDES them, so only surface the breakdown.
+      const cacheRead = usage.cache_read_input_tokens || usage.cached_tokens || 0;
+      const cacheCreate = usage.cache_creation_input_tokens || 0;
+      const cachedInclusive = usage.input_tokens_details?.cached_tokens || 0;
+      const reasoningTokens = usage.output_tokens_details?.reasoning_tokens || 0;
+      const inTokens = (usage.input_tokens || 0) + cacheRead + cacheCreate;
+      const outTokens = usage.output_tokens || 0;
+      const cachedTotal = cacheRead + cachedInclusive;
+      const cacheDetails = (cachedTotal > 0 || cacheCreate > 0)
+        ? { prompt_tokens_details: {
+              ...(cachedTotal > 0 ? { cached_tokens: cachedTotal } : {}),
+              ...(cacheCreate > 0 ? { cache_creation_tokens: cacheCreate } : {}) } }
+        : {};
+      const reasoningDetails = reasoningTokens > 0
+        ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } }
+        : {};
+
+      // Stats/cost read flat cached_tokens/reasoning_tokens; lift the nested
+      // Responses breakdown so cache hits are priced and logged.
+      const statsUsage = (cachedInclusive > 0 || reasoningTokens > 0)
+        ? { ...usage, ...(cachedInclusive > 0 ? { cached_tokens: cachedInclusive } : {}), ...(reasoningTokens > 0 ? { reasoning_tokens: reasoningTokens } : {}) }
+        : usage;
+      appendLog({ tokens: statsUsage, status: "200 OK" });
+      saveUsageStats({ provider, model, tokens: statsUsage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });
+      if (log?.line) log.line(reqTag, "📊", formatDoneLine({ usage: statsUsage, latency: { total: Date.now() - requestStartTime } }));
+
       const { msgItem, textContent } = pickAssistantMessageForChatCompletion(jsonResponse.output);
       const totalLatency = Date.now() - requestStartTime;
 
+      // Same cache-inclusive total for the recorded detail, so the DB and the
+      // client-facing usage can never disagree.
       saveRequestDetail(buildRequestDetail({
         ...ctx,
         latency: { ttft: totalLatency, total: totalLatency },
-        tokens: { prompt_tokens: inTokensForLog, completion_tokens: usage.output_tokens || 0 },
+        tokens: { prompt_tokens: inTokens, completion_tokens: outTokens },
         response: { content: textContent, thinking: null, finish_reason: jsonResponse.status || "unknown" },
         status: "success"
       }, { endpoint: clientRawRequest?.endpoint || null })).catch(() => {});
@@ -229,20 +254,6 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       }
 
       // Build client-format response.
-      // input_tokens EXCLUDES cached tokens on cache-capable upstreams, so summing
-      // only input+output under-reports prompt_tokens — measured: 2012 reported
-      // where the real prompt was ~5344 with 5332 served from cache. Fold the cache
-      // counters in, and keep them visible in prompt_tokens_details so a client can
-      // tell a cache hit from a small prompt.
-      const cacheRead = usage.cache_read_input_tokens || usage.cached_tokens || 0;
-      const cacheCreate = usage.cache_creation_input_tokens || 0;
-      const inTokens = (usage.input_tokens || 0) + cacheRead + cacheCreate;
-      const outTokens = usage.output_tokens || 0;
-      const cacheDetails = (cacheRead > 0 || cacheCreate > 0)
-        ? { prompt_tokens_details: {
-              ...(cacheRead > 0 ? { cached_tokens: cacheRead } : {}),
-              ...(cacheCreate > 0 ? { cache_creation_tokens: cacheCreate } : {}) } }
-        : {};
       let finalResp;
 
       // Extract tool calls from Responses API output (function_call items)
@@ -277,7 +288,7 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
           created: jsonResponse.created_at || Math.floor(Date.now() / 1000),
           model: jsonResponse.model || model,
           choices: [{ index: 0, message, finish_reason: finishReason }],
-          usage: { prompt_tokens: inTokens, completion_tokens: outTokens, total_tokens: inTokens + outTokens, ...cacheDetails }
+          usage: { prompt_tokens: inTokens, completion_tokens: outTokens, total_tokens: inTokens + outTokens, ...cacheDetails, ...reasoningDetails }
         };
       }
 

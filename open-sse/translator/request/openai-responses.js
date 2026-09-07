@@ -459,6 +459,21 @@ export function openaiToOpenAIResponsesRequest(model, body, stream, credentials)
   if (body.service_tier !== undefined) result.service_tier = body.service_tier;
   if (body.prompt_cache_key !== undefined) result.prompt_cache_key = body.prompt_cache_key;
 
+  // Structured Outputs: Chat Completions response_format.json_schema → Responses text.format
+  const rf = body.response_format;
+  if (rf?.type === "json_schema" && rf.json_schema?.schema) {
+    const { name, schema, strict, description } = rf.json_schema;
+    result.text = {
+      format: {
+        type: "json_schema",
+        name: name || "response",
+        schema,
+        ...(strict !== undefined ? { strict } : {}),
+        ...(description ? { description } : {})
+      }
+    };
+  }
+
   return result;
 }
 
