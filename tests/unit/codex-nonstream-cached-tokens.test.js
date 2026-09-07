@@ -10,11 +10,14 @@ const { FORMATS } = await import("../../open-sse/translator/formats.js");
 const { convertResponsesStreamToJson } = await import("../../open-sse/transformer/streamToJsonConverter.js");
 const { handleForcedSSEToJson } = await import("../../open-sse/handlers/chatCore/sseToJsonHandler.js");
 const { openaiToOpenAIResponsesRequest } = await import("../../open-sse/translator/request/openai-responses.js");
+const { openaiResponsesToOpenAIResponse } = await import("../../open-sse/translator/response/openai-responses.js");
+const { extractUsage, canonicalizeUsage } = await import("../../open-sse/utils/usageTracking.js");
+const { initState } = await import("../../open-sse/translator/index.js");
 
-// Codex Responses SSE: input_tokens already INCLUDES cached_tokens.
+// Codex Responses SSE: input_tokens already INCLUDES cached_tokens and cache_write_tokens.
 const USAGE = {
   input_tokens: 6331,
-  input_tokens_details: { cached_tokens: 4096 },
+  input_tokens_details: { cached_tokens: 4096, cache_write_tokens: 128 },
   output_tokens: 57,
   output_tokens_details: { reasoning_tokens: 50 },
   total_tokens: 6388
@@ -65,17 +68,35 @@ describe("Codex non-stream usage keeps cached/reasoning breakdown", () => {
       prompt_tokens: 6331,
       completion_tokens: 57,
       total_tokens: 6388,
-      prompt_tokens_details: { cached_tokens: 4096 },
+      prompt_tokens_details: { cached_tokens: 4096, cache_creation_tokens: 128 },
       completion_tokens_details: { reasoning_tokens: 50 }
     });
     // stats/log path sees flat cached_tokens so cost accounting can price the cache hit
-    expect(appendLog.mock.calls[0][0].tokens).toMatchObject({ input_tokens: 6331, cached_tokens: 4096, reasoning_tokens: 50 });
+    const logged = appendLog.mock.calls[0][0].tokens;
+    expect(logged).toMatchObject({ input_tokens: 6331, cached_tokens: 4096, cache_creation_input_tokens: 128, reasoning_tokens: 50 });
+    // canonical storage must not fold the (already inclusive) cache counters into prompt_tokens
+    expect(canonicalizeUsage(logged)).toMatchObject({ prompt_tokens: 6331, cached_tokens: 4096, cache_creation_input_tokens: 128 });
+  });
+
+  it("stream path surfaces cache_write_tokens and reasoning_tokens too", () => {
+    const state = initState();
+    const chunk = { type: "response.completed", response: { id: "resp_1", usage: USAGE } };
+    openaiResponsesToOpenAIResponse(chunk, state);
+    expect(state.usage).toEqual({
+      prompt_tokens: 6331,
+      completion_tokens: 57,
+      total_tokens: 6388,
+      prompt_tokens_details: { cached_tokens: 4096, cache_creation_tokens: 128 },
+      completion_tokens_details: { reasoning_tokens: 50 }
+    });
+    // stats extraction from the raw chunk keeps prompt inclusive and records the write
+    expect(canonicalizeUsage(extractUsage(chunk))).toMatchObject({ prompt_tokens: 6331, cached_tokens: 4096, cache_creation_input_tokens: 128 });
   });
 
   it("responses client gets usage.input_tokens_details as-is", async () => {
     const result = await handleForcedSSEToJson(ctx(FORMATS.OPENAI_RESPONSES));
     const json = await result.response.json();
-    expect(json.usage.input_tokens_details).toEqual({ cached_tokens: 4096 });
+    expect(json.usage.input_tokens_details).toEqual({ cached_tokens: 4096, cache_write_tokens: 128 });
     expect(json.usage.output_tokens_details).toEqual({ reasoning_tokens: 50 });
   });
 });

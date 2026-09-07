@@ -266,10 +266,14 @@ export function extractUsage(chunk) {
   if ((chunk.type === "response.completed" || chunk.type === "response.done") && chunk.response?.usage && typeof chunk.response.usage === "object") {
     const usage = chunk.response.usage;
     const cachedTokens = usage.input_tokens_details?.cached_tokens;
+    const cacheWriteTokens = usage.input_tokens_details?.cache_write_tokens;
     return normalizeUsage({
       prompt_tokens: usage.input_tokens || usage.prompt_tokens || 0,
       completion_tokens: usage.output_tokens || usage.completion_tokens || 0,
-      cached_tokens: cachedTokens,
+      // cached_tokens must be defined (even 0) alongside a cache write so
+      // canonicalizeUsage keeps the inclusive (OpenAI) branch and does not fold.
+      cached_tokens: cachedTokens ?? (cacheWriteTokens ? 0 : undefined),
+      cache_creation_input_tokens: cacheWriteTokens || undefined,
       reasoning_tokens: usage.output_tokens_details?.reasoning_tokens,
       prompt_tokens_details: cachedTokens ? { cached_tokens: cachedTokens } : undefined
     });

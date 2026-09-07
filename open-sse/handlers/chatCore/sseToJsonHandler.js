@@ -213,23 +213,29 @@ export async function handleForcedSSEToJson({ providerResponse, sourceFormat, ta
       const cacheRead = usage.cache_read_input_tokens || usage.cached_tokens || 0;
       const cacheCreate = usage.cache_creation_input_tokens || 0;
       const cachedInclusive = usage.input_tokens_details?.cached_tokens || 0;
+      const cacheWriteInclusive = usage.input_tokens_details?.cache_write_tokens || 0;
       const reasoningTokens = usage.output_tokens_details?.reasoning_tokens || 0;
       const inTokens = (usage.input_tokens || 0) + cacheRead + cacheCreate;
       const outTokens = usage.output_tokens || 0;
       const cachedTotal = cacheRead + cachedInclusive;
-      const cacheDetails = (cachedTotal > 0 || cacheCreate > 0)
+      const cacheCreateTotal = cacheCreate + cacheWriteInclusive;
+      const cacheDetails = (cachedTotal > 0 || cacheCreateTotal > 0)
         ? { prompt_tokens_details: {
               ...(cachedTotal > 0 ? { cached_tokens: cachedTotal } : {}),
-              ...(cacheCreate > 0 ? { cache_creation_tokens: cacheCreate } : {}) } }
+              ...(cacheCreateTotal > 0 ? { cache_creation_tokens: cacheCreateTotal } : {}) } }
         : {};
       const reasoningDetails = reasoningTokens > 0
         ? { completion_tokens_details: { reasoning_tokens: reasoningTokens } }
         : {};
 
       // Stats/cost read flat cached_tokens/reasoning_tokens; lift the nested
-      // Responses breakdown so cache hits are priced and logged.
-      const statsUsage = (cachedInclusive > 0 || reasoningTokens > 0)
-        ? { ...usage, ...(cachedInclusive > 0 ? { cached_tokens: cachedInclusive } : {}), ...(reasoningTokens > 0 ? { reasoning_tokens: reasoningTokens } : {}) }
+      // Responses breakdown so cache hits are priced and logged. Setting
+      // cached_tokens (even 0) keeps canonicalizeUsage on its inclusive branch.
+      const statsUsage = (cachedInclusive > 0 || cacheWriteInclusive > 0 || reasoningTokens > 0)
+        ? { ...usage,
+            cached_tokens: cachedInclusive,
+            ...(cacheWriteInclusive > 0 ? { cache_creation_input_tokens: cacheWriteInclusive } : {}),
+            ...(reasoningTokens > 0 ? { reasoning_tokens: reasoningTokens } : {}) }
         : usage;
       appendLog({ tokens: statsUsage, status: "200 OK" });
       saveUsageStats({ provider, model, tokens: statsUsage, connectionId, apiKey, endpoint: clientRawRequest?.endpoint, silent: true });

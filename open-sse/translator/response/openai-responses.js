@@ -548,8 +548,11 @@ export function openaiResponsesToOpenAIResponse(chunk, state) {
       // OpenAI Responses API: input_tokens already includes cached_tokens
       // Cache info is in input_tokens_details.cached_tokens
       const cacheReadTokens = responseUsage.input_tokens_details?.cached_tokens || responseUsage.cache_read_input_tokens || 0;
-      
-      state.usage = buildUsage({ promptTokens: inputTokens, completionTokens: outputTokens, totalTokens: inputTokens + outputTokens, cachedTokens: cacheReadTokens });
+      // Codex reports cache writes as input_tokens_details.cache_write_tokens (subset of input_tokens)
+      const cacheWriteTokens = responseUsage.input_tokens_details?.cache_write_tokens || 0;
+      const reasoningTokens = responseUsage.output_tokens_details?.reasoning_tokens || 0;
+
+      state.usage = buildUsage({ promptTokens: inputTokens, completionTokens: outputTokens, totalTokens: inputTokens + outputTokens, cachedTokens: cacheReadTokens, cacheCreationTokens: cacheWriteTokens, reasoningTokens });
     }
     
     if (!state.finishReasonSent) {
