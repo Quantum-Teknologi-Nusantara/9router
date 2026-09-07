@@ -2,6 +2,7 @@
 
 ## Fixes
 - **Codex**: non-streaming `/chat/completions` and `/responses` now return `prompt_tokens_details.cached_tokens` and `completion_tokens_details.reasoning_tokens` (Responses `input_tokens_details` / `output_tokens_details` were dropped when collapsing the forced stream); cache hits now reach usage stats and cost. Codex `input_tokens_details.cache_write_tokens` is surfaced as `prompt_tokens_details.cache_creation_tokens` on both stream and non-stream paths
+- **Usage**: report client-facing usage exactly as upstream; drop the synthetic 2000-token `BUFFER_TOKENS` padding on `prompt_tokens` for stream, non-stream and estimated usage across all providers
 - **Codex**: translate `response_format: json_schema` into Responses `text.format` so Structured Outputs are honoured instead of ignored
 
 # v0.5.69 (2026-09-05)
