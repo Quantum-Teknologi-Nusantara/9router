@@ -34,7 +34,8 @@ function buildTransformStream({ provider, sourceFormat, targetFormat, userAgent,
     return createSSETransformStreamWithLogger(FORMATS.OPENAI_RESPONSES, codexTarget, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials);
   }
 
-  if (needsTranslation(targetFormat, sourceFormat)) {
+  // Same-format streams with cloaked tools still go through translate mode so tool names get decloaked
+  if (needsTranslation(targetFormat, sourceFormat) || toolNameMap?.size) {
     return createSSETransformStreamWithLogger(targetFormat, sourceFormat, provider, reqLogger, toolNameMap, model, connectionId, body, onStreamComplete, apiKey, customToolNames, credentials);
   }
 
