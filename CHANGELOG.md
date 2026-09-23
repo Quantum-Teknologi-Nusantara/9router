@@ -5,6 +5,7 @@
 - **Usage**: report client-facing usage exactly as upstream; drop the synthetic 2000-token `BUFFER_TOKENS` padding on `prompt_tokens` for stream, non-stream and estimated usage across all providers
 - **Claude**: decloak `_ide`-suffixed tool names on claude→claude streaming for non-Claude-Code clients (OpenClaw, Hermes, a chained 9Router) — same-format streams skipped `translateResponse()`, so the decloak never ran
 - **Codex**: translate `response_format: json_schema` into Responses `text.format` so Structured Outputs are honoured instead of ignored
+- **Claude**: bump Claude Code fingerprint to 2.1.280 (`User-Agent`, billing header `cc_version`)
 
 # v0.5.85 (2026-09-22)
 
