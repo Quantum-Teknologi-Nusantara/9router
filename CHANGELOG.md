@@ -5,7 +5,17 @@
 - **Usage**: report client-facing usage exactly as upstream; drop the synthetic 2000-token `BUFFER_TOKENS` padding on `prompt_tokens` for stream, non-stream and estimated usage across all providers
 - **Claude**: decloak `_ide`-suffixed tool names on claude→claude streaming for non-Claude-Code clients (OpenClaw, Hermes, a chained 9Router) — same-format streams skipped `translateResponse()`, so the decloak never ran
 - **Codex**: translate `response_format: json_schema` into Responses `text.format` so Structured Outputs are honoured instead of ignored
-- **Claude**: bump Claude Code fingerprint to 2.1.280 (`User-Agent`, billing header `cc_version`)
+
+# v0.5.86 (2026-09-23)
+
+## Features
+- **Xiaomi MiMo**: server-assisted desktop login for headless/Docker deployments, five account clusters (cn/sgp/ams/ru/in), and v2.6 pro/flash/pro-ultraspeed models with dual-route (account service vs. cloud API)
+- **Claude**: add Claude Opus 5.5 support
+- **i18n**: translate React text rewrites via characterData mutation observer
+
+## Fixes
+- **Proxy Pools**: keep request headers intact through Vercel/Cloudflare/Deno relays (spreading a `Headers` instance yielded `{}`, dropping auth and content-type)
+- **Xiaomi MiMo login**: keep the session in the httpOnly cookie only, require dashboard auth on the proxy branch, and stop forwarding authorization headers upstream
 
 # v0.5.85 (2026-09-22)
 
