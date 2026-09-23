@@ -132,7 +132,11 @@ export function geminiToOpenAIResponse(chunk, state) {
   // Usage metadata - extract before finish reason so we can include it
   const usageMeta = response.usageMetadata || chunk.usageMetadata;
   const geminiUsage = toOpenAIUsage(usageMeta, "gemini");
-  if (geminiUsage) state.usage = geminiUsage;
+  if (geminiUsage) {
+    state.usage = geminiUsage;
+    // Mid-stream usage for a downstream translator's message_start; only the final chunk carries `usage`.
+    state.upstreamUsage = geminiUsage;
+  }
 
   // Finish reason - include usage in final chunk
   if (candidate.finishReason) {

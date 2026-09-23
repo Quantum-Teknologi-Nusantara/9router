@@ -79,6 +79,47 @@ describe("Antigravity → Claude", () => {
     expect(jsonDelta).toMatchObject({ index: expect.any(Number) });
     expect(JSON.parse(jsonDelta.delta.partial_json)).toEqual({ command: "git status" });
   });
+
+  // Claude clients bill each message from message_start; Gemini already knows the
+  // prompt size on its first chunk, so zeros there made every message look free.
+  it("message_start carries the prompt usage from the first chunk", () => {
+    const state = initState(FORMATS.CLAUDE);
+    const events = translateResponse(FORMATS.ANTIGRAVITY, FORMATS.CLAUDE, {
+      response: {
+        responseId: "resp-usage",
+        modelVersion: "gemini-3.7-flash-tiered",
+        candidates: [{ content: { role: "model", parts: [{ text: "one" }] }, index: 0 }],
+        usageMetadata: {
+          promptTokenCount: 1200,
+          cachedContentTokenCount: 1000,
+          candidatesTokenCount: 16,
+          thoughtsTokenCount: 324,
+          totalTokenCount: 1540,
+        },
+      },
+    }, state);
+
+    const start = events.find((event) => event.type === "message_start");
+    expect(start.message.usage).toEqual({
+      input_tokens: 200,
+      cache_read_input_tokens: 1000,
+      output_tokens: 0,
+    });
+  });
+
+  it("message_start stays zero when the first chunk has no usage", () => {
+    const state = initState(FORMATS.CLAUDE);
+    const events = translateResponse(FORMATS.ANTIGRAVITY, FORMATS.CLAUDE, {
+      response: {
+        responseId: "resp-nousage",
+        modelVersion: "gemini-3.7-flash-tiered",
+        candidates: [{ content: { role: "model", parts: [{ text: "one" }] }, index: 0 }],
+      },
+    }, state);
+
+    const start = events.find((event) => event.type === "message_start");
+    expect(start.message.usage).toEqual({ input_tokens: 0, output_tokens: 0 });
+  });
 });
 
 describe("Antigravity executor", () => {

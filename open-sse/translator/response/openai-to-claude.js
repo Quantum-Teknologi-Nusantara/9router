@@ -67,6 +67,31 @@ function stopTextBlock(state, results) {
   state.textBlockStarted = false;
 }
 
+// OpenAI usage object → Claude usage object
+function toClaudeUsage(openaiUsage) {
+  const promptTokens = typeof openaiUsage.prompt_tokens === "number" ? openaiUsage.prompt_tokens : 0;
+  const outputTokens = typeof openaiUsage.completion_tokens === "number" ? openaiUsage.completion_tokens : 0;
+
+  // Extract cache tokens from prompt_tokens_details
+  const cachedTokens = openaiUsage.prompt_tokens_details?.cached_tokens;
+  const cacheCreationTokens = openaiUsage.prompt_tokens_details?.cache_creation_tokens;
+  const cacheReadTokens = typeof cachedTokens === "number" ? cachedTokens : 0;
+  const cacheCreateTokens = typeof cacheCreationTokens === "number" ? cacheCreationTokens : 0;
+
+  // input_tokens = prompt_tokens - cached_tokens - cache_creation_tokens
+  // Because OpenAI's prompt_tokens includes all prompt-side tokens
+  const usage = {
+    input_tokens: promptTokens - cacheReadTokens - cacheCreateTokens,
+    output_tokens: outputTokens
+  };
+  if (cacheReadTokens > 0) usage.cache_read_input_tokens = cacheReadTokens;
+  if (cacheCreateTokens > 0) usage.cache_creation_input_tokens = cacheCreateTokens;
+
+  // Note: completion_tokens_details.reasoning_tokens is already included in output_tokens
+  // No need to add separately as Claude expects total output_tokens
+  return usage;
+}
+
 // Convert OpenAI stream chunk to Claude format
 export function openaiToClaudeResponse(chunk, state) {
   if (!chunk || !chunk.choices?.[0]) return null;
@@ -77,36 +102,7 @@ export function openaiToClaudeResponse(chunk, state) {
 
   // Track usage from OpenAI chunk if available
   if (chunk.usage && typeof chunk.usage === "object") {
-    const promptTokens = typeof chunk.usage.prompt_tokens === "number" ? chunk.usage.prompt_tokens : 0;
-    const outputTokens = typeof chunk.usage.completion_tokens === "number" ? chunk.usage.completion_tokens : 0;
-
-    // Extract cache tokens from prompt_tokens_details
-    const cachedTokens = chunk.usage.prompt_tokens_details?.cached_tokens;
-    const cacheCreationTokens = chunk.usage.prompt_tokens_details?.cache_creation_tokens;
-    const cacheReadTokens = typeof cachedTokens === "number" ? cachedTokens : 0;
-    const cacheCreateTokens = typeof cacheCreationTokens === "number" ? cacheCreationTokens : 0;
-
-    // input_tokens = prompt_tokens - cached_tokens - cache_creation_tokens
-    // Because OpenAI's prompt_tokens includes all prompt-side tokens
-    const inputTokens = promptTokens - cacheReadTokens - cacheCreateTokens;
-
-    state.usage = {
-      input_tokens: inputTokens,
-      output_tokens: outputTokens
-    };
-
-    // Add cache_read_input_tokens if present
-    if (cacheReadTokens > 0) {
-      state.usage.cache_read_input_tokens = cacheReadTokens;
-    }
-
-    // Add cache_creation_input_tokens if present
-    if (cacheCreateTokens > 0) {
-      state.usage.cache_creation_input_tokens = cacheCreateTokens;
-    }
-
-    // Note: completion_tokens_details.reasoning_tokens is already included in output_tokens
-    // No need to add separately as Claude expects total output_tokens
+    state.usage = toClaudeUsage(chunk.usage);
   }
 
   // First chunk - ALWAYS send message_start first
@@ -120,6 +116,12 @@ export function openaiToClaudeResponse(chunk, state) {
     }
     state.model = chunk.model || MODEL_FALLBACK;
     state.nextBlockIndex = 0;
+    // Claude clients bill each message from message_start's usage, so report the
+    // prompt-side tokens here whenever the upstream already has them (Gemini sends
+    // usageMetadata on every chunk). Output stays 0 — message_delta carries it, as
+    // on Anthropic. Zero input only when nothing is known yet — never an estimate:
+    // an over-count cannot be taken back by message_delta.
+    const knownUsage = chunk.usage || state.upstreamUsage;
     results.push({
       type: "message_start",
       message: {
@@ -130,7 +132,7 @@ export function openaiToClaudeResponse(chunk, state) {
         content: [],
         stop_reason: null,
         stop_sequence: null,
-        usage: { input_tokens: 0, output_tokens: 0 }
+        usage: knownUsage ? { ...toClaudeUsage(knownUsage), output_tokens: 0 } : { input_tokens: 0, output_tokens: 0 }
       }
     });
   }
