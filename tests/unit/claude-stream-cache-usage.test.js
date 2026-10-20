@@ -14,7 +14,7 @@ vi.mock("@/lib/usageDb.js", () => ({
 }));
 
 import { claudeToOpenAIResponse } from "../../open-sse/translator/response/claude-to-openai.js";
-import { addBufferToUsage, canonicalizeUsage, filterUsageForFormat } from "../../open-sse/utils/usageTracking.js";
+import { canonicalizeUsage, filterUsageForFormat } from "../../open-sse/utils/usageTracking.js";
 import { FORMATS } from "../../open-sse/translator/formats.js";
 
 function runStream(state) {
@@ -45,13 +45,13 @@ describe("claude -> openai stream usage keeps the cache split", () => {
     });
   });
 
-  it("state.usage survives the stream.js client re-emit (buffer + OpenAI field filter)", () => {
+  it("state.usage survives the stream.js client re-emit (OpenAI field filter)", () => {
     const state = {};
     runStream(state);
-    const client = filterUsageForFormat(addBufferToUsage(state.usage), FORMATS.OPENAI);
+    const client = filterUsageForFormat(state.usage, FORMATS.OPENAI);
     expect(client.prompt_tokens_details).toEqual({ cached_tokens: 22548 });
     expect(client.cached_tokens).toBe(22548);
-    expect(client.prompt_tokens).toBe(22561 + 2000);
+    expect(client.prompt_tokens).toBe(22561);
     expect(client.cache_read_input_tokens).toBeUndefined();
   });
 
